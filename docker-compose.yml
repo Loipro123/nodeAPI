@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Development service
+  app-dev:
+    build:
+      context: .
+      target: development
+    container_name: nodeapi-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+    networks:
+      - nodeapi-network
+    restart: unless-stopped
+
+  # Production service
+  app-prod:
+    build:
+      context: .
+      target: base
+    container_name: nodeapi-prod
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    networks:
+      - nodeapi-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+networks:
+  nodeapi-network:
+    driver: bridge
+
+# Optional: Add volumes for persistent data
+volumes:
+  node_modules:

@@ -1,0 +1,444 @@
+version: 2.1
+
+orbs:
+  node: circleci/node@5.1.0
+  aws-ecr: circleci/aws-ecr@8.2.1
+  aws-ecs: circleci/aws-ecs@3.2.0
+  snyk: snyk/snyk@1.7.0
+
+jobs:
+  # Job 1: Install dependencies and cache
+  install-deps:
+    docker:
+      - image: cimg/node:18.18
+    resource_class: medium
+    steps:
+      - checkout
+      - node/install-packages:
+          pkg-manager: npm
+          cache-version: v1
+      - persist_to_workspace:
+          root: .
+          paths:
+            - node_modules
+            - package-lock.json
+
+  # Job 2: Run linting and formatting checks
+  lint-and-format:
+    docker:
+      - image: cimg/node:18.18
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: TypeScript type checking
+          command: npm run typecheck
+      - run:
+          name: Check code formatting with Prettier
+          command: npm run format:check
+      - run:
+          name: Run ESLint
+          command: npm run lint
+      - store_artifacts:
+          path: .eslintcache
+          destination: lint-cache
+
+  # Job 3: Run unit tests with coverage
+  test:
+    docker:
+      - image: cimg/node:18.18
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Run tests with coverage
+          command: |
+            mkdir -p test-results
+            npm run test:ci
+      - run:
+          name: Generate JUnit XML report
+          command: |
+            # Install jest-junit if not already in package.json
+            npm install --no-save jest-junit
+            npx jest --testResultsProcessor=jest-junit
+          when: always
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: coverage
+          destination: coverage-report
+      - store_artifacts:
+          path: test-results
+          destination: test-results
+
+  # Job 4: Security scanning with Snyk and npm audit
+  security-scan:
+    docker:
+      - image: cimg/node:18.18
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Run npm audit
+          command: |
+            npm run security:audit || {
+              echo "npm audit found vulnerabilities"
+              npm audit --audit-level=high || true
+            }
+      - run:
+          name: Run Snyk test
+          command: |
+            # Authenticate with Snyk using token from environment
+            if [ -n "$SNYK_TOKEN" ]; then
+              npx snyk auth $SNYK_TOKEN
+              npm run security:snyk || {
+                echo "Snyk found vulnerabilities"
+                npx snyk test --json > snyk-report.json || true
+                npx snyk test || true
+              }
+            else
+              echo "SNYK_TOKEN not set, skipping Snyk scan"
+            fi
+      - store_artifacts:
+          path: snyk-report.json
+          destination: snyk-report
+      - run:
+          name: Monitor project in Snyk (non-blocking)
+          command: |
+            if [ -n "$SNYK_TOKEN" ]; then
+              npm run security:snyk:monitor || true
+            fi
+          when: always
+
+  # Job 5: Build application
+  build:
+    docker:
+      - image: cimg/node:18.18
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Build TypeScript application
+          command: npm run build
+      - run:
+          name: Verify build output
+          command: |
+            ls -la dist/
+            echo "Build completed successfully"
+      - persist_to_workspace:
+          root: .
+          paths:
+            - dist
+            - package.json
+            - package-lock.json
+            - Dockerfile
+            - .dockerignore
+
+  # Job 6: Docker security scan
+  docker-security-scan:
+    machine:
+      image: ubuntu-2204:2023.10.1
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Build Docker image for scanning
+          command: |
+            docker build -t nodeapi-scan:${CIRCLE_SHA1} .
+      - run:
+          name: Install Trivy
+          command: |
+            sudo apt-get update
+            sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+            echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+            sudo apt-get update
+            sudo apt-get install trivy -y
+      - run:
+          name: Scan Docker image for vulnerabilities
+          command: |
+            echo "Scanning Docker image for vulnerabilities..."
+            trivy image --severity HIGH,CRITICAL --format json --output trivy-report.json nodeapi-scan:${CIRCLE_SHA1} || true
+            trivy image --severity HIGH,CRITICAL nodeapi-scan:${CIRCLE_SHA1} || {
+              echo "⚠️ High or critical vulnerabilities found in Docker image"
+              echo "Check the trivy-report.json artifact for details"
+              # Don't fail the build for now, just warn
+              exit 0
+            }
+      - store_artifacts:
+          path: trivy-report.json
+          destination: trivy-scan-report
+
+  # Job 7: Build and push to ECR
+  build-and-push-ecr:
+    docker:
+      - image: cimg/aws:2023.09
+    resource_class: medium
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Verify environment variables
+          command: |
+            echo "=== Environment Variables Check ==="
+            echo "AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}"
+            echo "AWS_ECR_REPOSITORY_URL: ${AWS_ECR_REPOSITORY_URL}"
+
+            if [ -z "$AWS_DEFAULT_REGION" ]; then echo "ERROR: AWS_DEFAULT_REGION is not set"; exit 1; fi
+            if [ -z "$AWS_ECR_REPOSITORY_URL" ]; then echo "ERROR: AWS_ECR_REPOSITORY_URL is not set"; exit 1; fi
+            echo "✅ All ECR environment variables are set"
+      - run:
+          name: Build Docker image
+          command: |
+            echo "Building Docker image..."
+            docker build -t nodeapi:${CIRCLE_SHA1} -t nodeapi:latest .
+            docker tag nodeapi:${CIRCLE_SHA1} ${AWS_ECR_REPOSITORY_URL}:${CIRCLE_SHA1}
+            docker tag nodeapi:${CIRCLE_SHA1} ${AWS_ECR_REPOSITORY_URL}:latest
+      - run:
+          name: Login to ECR
+          command: |
+            echo "Logging into ECR..."
+            aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REPOSITORY_URL}
+      - run:
+          name: Push images to ECR
+          command: |
+            echo "Pushing images to ECR..."
+            docker push ${AWS_ECR_REPOSITORY_URL}:${CIRCLE_SHA1}
+            docker push ${AWS_ECR_REPOSITORY_URL}:latest
+            echo "✅ Images pushed successfully"
+
+  # Job 8: Deploy to ECS
+  deploy-to-ecs:
+    docker:
+      - image: cimg/aws:2023.09
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Verify environment variables
+          command: |
+            echo "=== Environment Variables Check ==="
+            echo "ECS_CLUSTER_NAME: ${ECS_CLUSTER_NAME}"
+            echo "ECS_SERVICE_NAME: ${ECS_SERVICE_NAME}"
+            echo "AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}"
+            echo "AWS_ECR_REPOSITORY_URL: ${AWS_ECR_REPOSITORY_URL}"
+
+            # Check if variables are empty
+            if [ -z "$ECS_CLUSTER_NAME" ]; then echo "ERROR: ECS_CLUSTER_NAME is not set"; exit 1; fi
+            if [ -z "$ECS_SERVICE_NAME" ]; then echo "ERROR: ECS_SERVICE_NAME is not set"; exit 1; fi
+            if [ -z "$AWS_DEFAULT_REGION" ]; then echo "ERROR: AWS_DEFAULT_REGION is not set"; exit 1; fi
+            if [ -z "$AWS_ECR_REPOSITORY_URL" ]; then echo "ERROR: AWS_ECR_REPOSITORY_URL is not set"; exit 1; fi
+
+            echo "✅ All environment variables are set"
+      - run:
+          name: Test AWS connectivity
+          command: |
+            echo "=== AWS Connectivity Test ==="
+            aws --version
+            aws sts get-caller-identity
+
+            # Test ECS cluster access
+            echo "Testing ECS cluster access..."
+            aws ecs describe-clusters --clusters "${ECS_CLUSTER_NAME}" --region "${AWS_DEFAULT_REGION}"
+
+            # Test ECS service access
+            echo "Testing ECS service access..."
+            aws ecs describe-services --cluster "${ECS_CLUSTER_NAME}" --services "${ECS_SERVICE_NAME}" --region "${AWS_DEFAULT_REGION}"
+      - run:
+          name: Update ECS service with new image
+          command: |
+            echo "=== Updating ECS Service ==="
+            echo "Cluster: ${ECS_CLUSTER_NAME}"
+            echo "Service: ${ECS_SERVICE_NAME}"
+            echo "Region: ${AWS_DEFAULT_REGION}"
+            echo "Image: ${AWS_ECR_REPOSITORY_URL}:${CIRCLE_SHA1}"
+
+            # Get current task definition
+            TASK_DEFINITION=$(aws ecs describe-services \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --services "${ECS_SERVICE_NAME}" \
+              --region "${AWS_DEFAULT_REGION}" \
+              --query 'services[0].taskDefinition' \
+              --output text)
+
+            echo "Current task definition: $TASK_DEFINITION"
+
+            # Create new task definition with updated image
+            aws ecs describe-task-definition \
+              --task-definition "$TASK_DEFINITION" \
+              --region "${AWS_DEFAULT_REGION}" \
+              --query 'taskDefinition' > task-def.json
+
+            # Update image in task definition
+            cat task-def.json | \
+            jq --arg IMAGE "${AWS_ECR_REPOSITORY_URL}:${CIRCLE_SHA1}" \
+               '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.placementConstraints) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)' \
+               > new-task-def.json
+
+            # Register new task definition
+            NEW_TASK_DEF=$(aws ecs register-task-definition \
+              --cli-input-json file://new-task-def.json \
+              --region "${AWS_DEFAULT_REGION}" \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text)
+
+            echo "New task definition: $NEW_TASK_DEF"
+
+            # Update service with new task definition
+            aws ecs update-service \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --service "${ECS_SERVICE_NAME}" \
+              --task-definition "$NEW_TASK_DEF" \
+              --region "${AWS_DEFAULT_REGION}"
+
+            echo "✅ Service update initiated"
+      - run:
+          name: Wait for deployment
+          command: |
+            echo "=== Waiting for Service Stability ==="
+
+            timeout 15m aws ecs wait services-stable \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --services "${ECS_SERVICE_NAME}" \
+              --region "${AWS_DEFAULT_REGION}" || {
+                echo "⚠️ Service stability wait timed out or failed"
+                echo "Checking current service status..."
+                aws ecs describe-services \
+                  --cluster "${ECS_CLUSTER_NAME}" \
+                  --services "${ECS_SERVICE_NAME}" \
+                  --region "${AWS_DEFAULT_REGION}" \
+                  --query 'services[0].{Status:status,RunningCount:runningCount,DesiredCount:desiredCount,Events:events[0:3]}'
+                exit 1
+              }
+
+            echo "✅ Service is stable"
+      - run:
+          name: Verify deployment and store IP
+          command: |
+            echo "=== Final Deployment Status ==="
+            aws ecs describe-services \
+              --cluster "${ECS_CLUSTER_NAME}" \
+              --services "${ECS_SERVICE_NAME}" \
+              --region "${AWS_DEFAULT_REGION}" \
+              --query 'services[0].{ServiceName:serviceName,Status:status,RunningCount:runningCount,DesiredCount:desiredCount,TaskDefinition:taskDefinition,LastUpdated:updatedAt}'
+
+            # Get and store new IP address if SECRETS_MANAGER_NAME is set
+            if [ -n "$SECRETS_MANAGER_NAME" ]; then
+              echo "=== Getting New ECS Task IP Address ==="
+              
+              TASK_ARNS=$(aws ecs list-tasks \
+                --cluster "${ECS_CLUSTER_NAME}" \
+                --service-name "${ECS_SERVICE_NAME}" \
+                --region "${AWS_DEFAULT_REGION}" \
+                --query 'taskArns[0]' \
+                --output text)
+
+              if [ "$TASK_ARNS" != "None" ] && [ -n "$TASK_ARNS" ]; then
+                ENI_ID=$(aws ecs describe-tasks \
+                  --cluster "${ECS_CLUSTER_NAME}" \
+                  --tasks "$TASK_ARNS" \
+                  --region "${AWS_DEFAULT_REGION}" \
+                  --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
+                  --output text)
+
+                if [ "$ENI_ID" != "None" ] && [ -n "$ENI_ID" ]; then
+                  PUBLIC_IP=$(aws ec2 describe-network-interfaces \
+                    --network-interface-ids "$ENI_ID" \
+                    --region "${AWS_DEFAULT_REGION}" \
+                    --query 'NetworkInterfaces[0].Association.PublicIp' \
+                    --output text)
+
+                  if [ "$PUBLIC_IP" != "None" ] && [ -n "$PUBLIC_IP" ]; then
+                    # Install jq if not available
+                    sudo apt-get update && sudo apt-get install -y jq
+
+                    CURRENT_SECRET=$(aws secretsmanager get-secret-value \
+                      --secret-id "${SECRETS_MANAGER_NAME}" \
+                      --region "${AWS_DEFAULT_REGION}" \
+                      --query 'SecretString' \
+                      --output text 2>/dev/null || echo "{}")
+
+                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+                    
+                    NEW_SECRET=$(echo "$CURRENT_SECRET" | jq --arg ip "$PUBLIC_IP" --arg ts "$TIMESTAMP" --arg sha "$CIRCLE_SHA1" '. + {api_ip_address: $ip, last_updated: $ts, deployment_source: "circleci", commit_sha: $sha}')
+
+                    aws secretsmanager update-secret \
+                      --secret-id "${SECRETS_MANAGER_NAME}" \
+                      --secret-string "$NEW_SECRET" \
+                      --region "${AWS_DEFAULT_REGION}" || \
+                    aws secretsmanager create-secret \
+                      --name "${SECRETS_MANAGER_NAME}" \
+                      --description "API Configuration for Node.js API" \
+                      --secret-string "$NEW_SECRET" \
+                      --region "${AWS_DEFAULT_REGION}"
+
+                    echo "✅ Successfully updated IP address in Secrets Manager"
+                    echo "📍 New IP: $PUBLIC_IP"
+                  fi
+                fi
+              fi
+            fi
+
+            echo "✅ Deployment verification complete"
+
+workflows:
+  build-test-deploy:
+    jobs:
+      # Stage 1: Install dependencies
+      - install-deps
+
+      # Stage 2: Quality checks (parallel, after deps installed)
+      - lint-and-format:
+          requires:
+            - install-deps
+      - test:
+          requires:
+            - install-deps
+      - security-scan:
+          requires:
+            - install-deps
+
+      # Stage 3: Build application
+      - build:
+          requires:
+            - lint-and-format
+            - test
+            - security-scan
+
+      # Stage 4: Docker security scan (after build)
+      - docker-security-scan:
+          requires:
+            - build
+
+      # Stage 5: Build and push to ECR (only on main branch)
+      - build-and-push-ecr:
+          requires:
+            - build
+            - docker-security-scan
+          filters:
+            branches:
+              only:
+                - main
+                - develop
+
+      # Stage 6: Deploy to ECS (only on main branch, after successful ECR push)
+      - deploy-to-ecs:
+          requires:
+            - build-and-push-ecr
+          filters:
+            branches:
+              only:
+                - main
