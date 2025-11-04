@@ -56,6 +56,7 @@ export SNYK_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 - Use `Contexts` for shared credentials across projects.
 - Add `SNYK_TOKEN`, `AWS_*` variables in project settings, not in repo files.
 - Use Branch filters in `workflows` to ensure deploys only run on `main` (already configured).
+- No special orb permissions needed - we use direct npm/CLI commands for Snyk instead of the Snyk orb.
 
 ## Troubleshooting
 

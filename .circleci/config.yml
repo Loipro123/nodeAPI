@@ -4,7 +4,6 @@ orbs:
   node: circleci/node@5.1.0
   aws-ecr: circleci/aws-ecr@8.2.1
   aws-ecs: circleci/aws-ecs@3.2.0
-  snyk: snyk/snyk@1.7.0
 
 jobs:
   # Job 1: Install dependencies and cache
@@ -373,7 +372,7 @@ jobs:
 
                     TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
                     
-                    NEW_SECRET=$(echo "$CURRENT_SECRET" | jq --arg ip "$PUBLIC_IP" --arg ts "$TIMESTAMP" --arg sha "$CIRCLE_SHA1" '. + {api_ip_address: $ip, last_updated: $ts, deployment_source: "circleci", commit_sha: $sha}')
+                    NEW_SECRET=$(echo "$CURRENT_SECRET" | jq --arg ip "$PUBLIC_IP" --arg ts "$TIMESTAMP" --arg sha "$CIRCLE_SHA1" '. + {api_ip_address_node: $ip, last_updated_node: $ts, deployment_source_node: "circleci", commit_sha_node: $sha}')
 
                     aws secretsmanager update-secret \
                       --secret-id "${SECRETS_MANAGER_NAME}" \
