@@ -73,8 +73,8 @@ app.use('*', (req: Request, res: Response) => {
 // Start server only if this file is run directly
 if (require.main === module) {
   app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server is running on http://0.0.0.0:${PORT}`);
-});
+    console.log(`🚀 Server is running on http://0.0.0.0:${PORT}`);
+  });
 }
 
 export default app;
