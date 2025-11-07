@@ -58,8 +58,28 @@ export SNYK_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 - Use Branch filters in `workflows` to ensure deploys only run on `main` (already configured).
 - No special orb permissions needed - we use direct npm/CLI commands for Snyk instead of the Snyk orb.
 
+## Snyk Token Setup
+
+To get a valid `SNYK_TOKEN`:
+
+1. **Sign up/Login** to [Snyk.io](https://snyk.io)
+2. **Generate API Token**:
+   - Go to Account Settings → General → API Token
+   - Or visit: https://app.snyk.io/account
+   - Copy the token (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)
+3. **Add to CircleCI**:
+   - Project Settings → Environment Variables
+   - Name: `SNYK_TOKEN`
+   - Value: Your copied token
+
+**Note**: If `SNYK_TOKEN` is missing or invalid, the pipeline will skip Snyk scanning but continue running other security checks.
+
 ## Troubleshooting
 
-- If ECR login fails, verify `AWS_DEFAULT_REGION` and that the `AWS_*` credentials are valid.
-- If ECS commands fail, check IAM permissions and that `ECS_CLUSTER_NAME` / `ECS_SERVICE_NAME` are correct.
-- If Snyk fails, ensure `SNYK_TOKEN` is set and has correct access in the Snyk organization.
+- **ECR login fails**: Verify `AWS_DEFAULT_REGION` and that the `AWS_*` credentials are valid.
+- **ECS commands fail**: Check IAM permissions and that `ECS_CLUSTER_NAME` / `ECS_SERVICE_NAME` are correct.
+- **Snyk authentication fails**: 
+  - Ensure `SNYK_TOKEN` is set correctly in CircleCI environment variables
+  - Verify token is not expired (regenerate if needed)
+  - Check that your Snyk account has access to scan the project
+  - Visit https://app.snyk.io/account to get a fresh token

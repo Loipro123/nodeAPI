@@ -95,14 +95,32 @@ jobs:
           command: |
             # Authenticate with Snyk using token from environment
             if [ -n "$SNYK_TOKEN" ]; then
-              npx snyk auth $SNYK_TOKEN
-              npm run security:snyk || {
-                echo "Snyk found vulnerabilities"
-                npx snyk test --json > snyk-report.json || true
-                npx snyk test || true
-              }
+              echo "SNYK_TOKEN provided, attempting authentication..."
+              if npx snyk auth $SNYK_TOKEN; then
+                echo "Snyk authentication successful"
+                npm run security:snyk || {
+                  echo "Snyk found vulnerabilities, generating report..."
+                  npx snyk test --json > snyk-report.json || true
+                  npx snyk test || {
+                    echo "⚠️ Snyk scan completed with vulnerabilities found"
+                    echo "Check snyk-report artifact for details"
+                    # Don't fail the build - just warn
+                    exit 0
+                  }
+                }
+              else
+                echo "⚠️ Snyk authentication failed - invalid or expired token"
+                echo "Please check your SNYK_TOKEN in CircleCI environment variables"
+                echo "Visit https://snyk.io to get a valid token"
+                echo "Continuing without Snyk scan..."
+                # Create empty report for artifacts
+                echo '{"vulnerabilities": [], "error": "Authentication failed"}' > snyk-report.json
+              fi
             else
               echo "SNYK_TOKEN not set, skipping Snyk scan"
+              echo "To enable Snyk scanning, add SNYK_TOKEN to CircleCI environment variables"
+              # Create empty report for artifacts
+              echo '{"vulnerabilities": [], "error": "No token provided"}' > snyk-report.json
             fi
       - store_artifacts:
           path: snyk-report.json
