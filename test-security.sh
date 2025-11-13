@@ -9,6 +9,10 @@ echo ""
 echo "📦 Test 1: Building standard Dockerfile (distroless production)"
 docker build --target production -t nodeapi:security-test . || {
   echo "❌ Build failed"
+  echo "🔍 Common issues:"
+  echo "   - Missing package-lock.json"
+  echo "   - npm dependency conflicts"  
+  echo "   - TypeScript compilation errors"
   exit 1
 }
 

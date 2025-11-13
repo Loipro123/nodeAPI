@@ -16,8 +16,8 @@ WORKDIR /app
 # Copy dependency files
 COPY package*.json ./
 
-# Install dependencies with security focus
-RUN npm ci --only=production --ignore-scripts && \
+# Install ALL dependencies (needed for TypeScript compilation)
+RUN npm install --ignore-scripts && \
     npm cache clean --force
 
 # Copy source code (only what's needed)
@@ -25,9 +25,11 @@ COPY src/ ./src/
 COPY tsconfig.json ./
 
 # Build application
-RUN npx tsc && \
-    # Clean up build dependencies
-    rm -rf src/ tsconfig.json node_modules/.cache
+RUN npm run build && \
+    # Clean up and install only production dependencies
+    rm -rf src/ tsconfig.json node_modules/ && \
+    npm ci --only=production --ignore-scripts && \
+    npm cache clean --force
 
 # Final production stage - Google Distroless (NO OS vulnerabilities)
 FROM gcr.io/distroless/nodejs18-debian11:nonroot

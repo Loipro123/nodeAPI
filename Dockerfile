@@ -14,8 +14,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (needed for TypeScript build)
-RUN npm ci && npm cache clean --force
+# Install ALL dependencies (including dev dependencies for TypeScript build)
+RUN npm install && npm cache clean --force
 
 # Copy source code
 COPY . .
@@ -23,8 +23,8 @@ COPY . .
 # Build the TypeScript application
 RUN npm run build
 
-# Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Clean install only production dependencies (removes dev dependencies)
+RUN rm -rf node_modules && npm ci --only=production && npm cache clean --force
 
 # Production stage - use distroless image (no OS vulnerabilities)
 FROM gcr.io/distroless/nodejs18-debian11:nonroot AS production
