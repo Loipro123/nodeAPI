@@ -31,8 +31,8 @@ RUN npm run build && \
     npm ci --only=production --ignore-scripts && \
     npm cache clean --force
 
-# Final production stage - Google Distroless (NO OS vulnerabilities)
-FROM gcr.io/distroless/nodejs18-debian11:nonroot
+# Final production stage - Latest Google Distroless with security updates
+FROM gcr.io/distroless/nodejs18-debian12:nonroot
 
 WORKDIR /app
 

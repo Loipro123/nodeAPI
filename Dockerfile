@@ -26,8 +26,8 @@ RUN npm run build
 # Clean install only production dependencies (removes dev dependencies)
 RUN rm -rf node_modules && npm ci --only=production && npm cache clean --force
 
-# Production stage - use distroless image (no OS vulnerabilities)
-FROM gcr.io/distroless/nodejs18-debian11:nonroot AS production
+# Production stage - use latest distroless image with security updates
+FROM gcr.io/distroless/nodejs18-debian12:nonroot AS production
 
 # Set working directory
 WORKDIR /app

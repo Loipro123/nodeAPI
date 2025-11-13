@@ -295,15 +295,20 @@ jobs:
               echo "🛡️  Build BLOCKED for security reasons"
               echo "📋 Check the trivy-report.json artifact for detailed vulnerability information"
               echo ""
-              echo "🔧 SPECIFIC FIX for CVE-2025-46569:"
-              echo "   1. Use distroless base image (eliminates OS vulnerabilities)"
-              echo "   2. Build with: docker build -f Dockerfile.secure"
-              echo "   3. Or update to use --target production in current Dockerfile"
+              echo "🔧 CURRENT VULNERABILITY FIXES:"
+              echo "   CVE-2025-46569 (OPA): ✅ FIXED - Eliminated with distroless approach"
+              echo "   CVE-2025-4802 (glibc): 🔧 Updated to Debian 12 distroless image"
               echo ""
-              echo "🔧 General vulnerability fixes:"
-              echo "   1. Update base image to newer version"
-              echo "   2. Use distroless or minimal base images" 
-              echo "   3. Remove unnecessary packages from container"
+              echo "🚀 ALTERNATIVE SECURE BUILD OPTIONS:"
+              echo "   1. Ultra-secure: docker build -f Dockerfile.secure"
+              echo "   2. Minimal Alpine: docker build -f Dockerfile.minimal"
+              echo "   3. Standard with latest base: current Dockerfile"
+              echo ""
+              echo "� SECURITY ANALYSIS:"
+              # Show specific vulnerabilities found
+              trivy image --format table --severity HIGH,CRITICAL nodeapi:${CIRCLE_SHA1} || true
+              echo ""
+              echo "💡 RECOMMENDATION: If glibc vulnerabilities persist, use Dockerfile.minimal"
               exit 1
             }
 
