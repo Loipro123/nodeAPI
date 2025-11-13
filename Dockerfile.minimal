@@ -2,7 +2,7 @@
 # Uses Alpine with explicit security patching
 
 # Build stage with latest Alpine
-FROM node:18.19.1-alpine3.19 AS builder
+FROM node:25-alpine3.21 AS builder
 
 # Security hardening - update everything and remove vulnerable packages
 RUN apk update && apk upgrade --no-cache && \
@@ -10,13 +10,13 @@ RUN apk update && apk upgrade --no-cache && \
     apk del --purge $(apk info | grep -E "(opa|policy|agent|glibc)" || echo "") && \
     # Install only essential security updates
     apk add --no-cache \
-        dumb-init \
-        ca-certificates \
+    dumb-init \
+    ca-certificates \
     && \
     # Complete cleanup
     rm -rf /var/cache/apk/* /tmp/* /var/tmp/* \
-           /usr/share/man/* /usr/share/doc/* \
-           /usr/share/info/* /usr/share/locale/*
+    /usr/share/man/* /usr/share/doc/* \
+    /usr/share/info/* /usr/share/locale/*
 
 WORKDIR /app
 
@@ -39,15 +39,15 @@ RUN npm run build && \
     # Remove build artifacts
     rm -rf src/ tsconfig.json .git/
 
-# Ultra-minimal production stage
-FROM alpine:3.19 AS production
+# Ultra-minimal production stage  
+FROM alpine:3.21 AS production
 
 # Install only Node.js runtime (no npm, no build tools)
 RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache \
-        nodejs \
-        dumb-init \
-        ca-certificates \
+    nodejs \
+    dumb-init \
+    ca-certificates \
     && \
     # Remove package manager and build tools to eliminate attack vectors
     apk del --purge apk-tools && \
@@ -56,9 +56,9 @@ RUN apk update && apk upgrade --no-cache && \
     adduser -S nodejs -u 1001 -G nodejs && \
     # Complete cleanup
     rm -rf /var/cache/apk/* /tmp/* /var/tmp/* \
-           /usr/share/man/* /usr/share/doc/* \
-           /usr/share/info/* /usr/share/locale/* \
-           /sbin/apk /etc/apk /lib/apk
+    /usr/share/man/* /usr/share/doc/* \
+    /usr/share/info/* /usr/share/locale/* \
+    /sbin/apk /etc/apk /lib/apk
 
 WORKDIR /app
 

@@ -1,5 +1,5 @@
 # Build stage - use latest Node.js for building
-FROM node:18.19.1-alpine3.19 AS builder
+FROM node:25-alpine3.21 AS builder
 
 # Update system packages and remove potentially vulnerable packages
 RUN apk update && apk upgrade && \
@@ -27,7 +27,7 @@ RUN npm run build
 RUN rm -rf node_modules && npm ci --only=production && npm cache clean --force
 
 # Production stage - use latest distroless image with security updates
-FROM gcr.io/distroless/nodejs18-debian12:nonroot AS production
+FROM gcr.io/distroless/nodejs20-debian12:nonroot AS production
 
 # Set working directory
 WORKDIR /app
@@ -44,8 +44,8 @@ EXPOSE 3000
 # Define the command to run the application
 CMD ["dist/index.js"]
 
-# Development stage - use secure Alpine image
-FROM node:18.19.1-alpine3.19 AS development
+# Development stage - use latest secure Alpine image
+FROM node:25-alpine3.21 AS development
 
 # Update system packages for development and remove OPA
 RUN apk update && apk upgrade && \

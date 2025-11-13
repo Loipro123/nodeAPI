@@ -35,7 +35,7 @@ scan_image() {
 
 # Build approach 1: Standard distroless (Debian 12)
 echo ""
-echo "🏗️  Attempt 1: Standard Distroless (Debian 12)"
+echo "🏗️  Attempt 1: Standard Distroless (Node.js 25 + Debian 12)"
 echo "------------------------------------------------"
 if docker build --target production -t "${IMAGE_NAME}:${SHA}-standard" . 2>/dev/null; then
     if scan_image "${IMAGE_NAME}:${SHA}-standard" "Standard Distroless"; then

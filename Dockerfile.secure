@@ -1,8 +1,8 @@
 # Ultra-secure Dockerfile - Eliminates CVE-2025-46569 completely
 # Uses distroless base image with minimal attack surface
 
-# Build stage - minimal Alpine for building only
-FROM node:18.19.1-alpine3.19 AS builder
+# Build stage - latest minimal Alpine for building only
+FROM node:25-alpine3.21 AS builder
 
 # Security hardening - remove all unnecessary packages
 RUN apk update && apk upgrade && \
@@ -32,7 +32,7 @@ RUN npm run build && \
     npm cache clean --force
 
 # Final production stage - Latest Google Distroless with security updates
-FROM gcr.io/distroless/nodejs18-debian12:nonroot
+FROM gcr.io/distroless/nodejs20-debian12:nonroot
 
 WORKDIR /app
 

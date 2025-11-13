@@ -9,7 +9,7 @@ jobs:
   # Job 1: Install dependencies and cache (production-optimized)
   install-deps:
     docker:
-      - image: cimg/node:18.18
+      - image: cimg/node:20.11
     resource_class: medium
     steps:
       - checkout
@@ -46,7 +46,7 @@ jobs:
   # Job 2: Run linting and formatting checks
   lint-and-format:
     docker:
-      - image: cimg/node:18.18
+      - image: cimg/node:20.11
     resource_class: medium
     steps:
       - checkout
@@ -71,7 +71,7 @@ jobs:
   # Job 3: Run unit tests with coverage
   test:
     docker:
-      - image: cimg/node:18.18
+      - image: cimg/node:20.11
     resource_class: medium
     steps:
       - checkout
@@ -101,7 +101,7 @@ jobs:
   # Job 4: Security scanning with Snyk and npm audit (blocking on critical)
   security-scan:
     docker:
-      - image: cimg/node:18.18
+      - image: cimg/node:20.11
     resource_class: medium
     steps:
       - checkout
@@ -190,7 +190,7 @@ jobs:
   # Job 5: Build application
   build:
     docker:
-      - image: cimg/node:18.18
+      - image: cimg/node:20.11
     resource_class: medium
     steps:
       - checkout
