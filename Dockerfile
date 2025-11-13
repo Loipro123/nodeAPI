@@ -1,5 +1,10 @@
-# Use the official Node.js runtime as the base image
-FROM node:18-alpine AS base
+# Use the latest Node.js runtime as the base image (updated for security)
+FROM node:18.19.0-alpine3.19 AS base
+
+# Update system packages and install security updates
+RUN apk update && apk upgrade && apk add --no-cache \
+    dumb-init \
+    && rm -rf /var/cache/apk/*
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -37,7 +42,12 @@ EXPOSE 3000
 CMD ["npm", "start"]
 
 # Multi-stage build for development
-FROM node:18-alpine AS development
+FROM node:18.19.0-alpine3.19 AS development
+
+# Update system packages for development
+RUN apk update && apk upgrade && apk add --no-cache \
+    dumb-init \
+    && rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
