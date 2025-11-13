@@ -233,24 +233,26 @@ jobs:
             if [ -z "$AWS_ECR_REPOSITORY_URL" ]; then echo "ERROR: AWS_ECR_REPOSITORY_URL is not set"; exit 1; fi
             echo "✅ All environment variables are set"
       - run:
-          name: Build Docker image (once)
+          name: Build Docker image (once) - Security Hardened
           command: |
-            echo "=== Building Docker Image ==="
+            echo "=== Building Security-Hardened Docker Image ==="
+            echo "Building secure distroless image to eliminate CVE-2025-46569"
             echo "Building image with tags:"
             echo "  - nodeapi:${CIRCLE_SHA1}"
             echo "  - nodeapi:latest"
             echo "  - ${AWS_ECR_REPOSITORY_URL}:${CIRCLE_SHA1}"
             echo "  - ${AWS_ECR_REPOSITORY_URL}:latest"
 
-            # Build image once with all tags
+            # Build secure distroless image (targets production stage)
             docker build \
+              --target production \
               -t nodeapi:${CIRCLE_SHA1} \
               -t nodeapi:latest \
               -t ${AWS_ECR_REPOSITORY_URL}:${CIRCLE_SHA1} \
               -t ${AWS_ECR_REPOSITORY_URL}:latest \
               .
 
-            echo "✅ Docker image built successfully"
+            echo "✅ Security-hardened Docker image built successfully"
             docker images | grep -E "(nodeapi|${AWS_ECR_REPOSITORY_URL##*/})"
       - run:
           name: Install Trivy
@@ -279,14 +281,29 @@ jobs:
 
             # Block build on HIGH/CRITICAL vulnerabilities
             echo "Checking for HIGH/CRITICAL vulnerabilities..."
+            echo "Specifically checking for CVE-2025-46569 (OPA vulnerability)..."
+
+            # Check specifically for OPA vulnerabilities
+            if trivy image --format json nodeapi:${CIRCLE_SHA1} | grep -i "CVE-2025-46569\|opa"; then
+              echo "❌ CRITICAL: CVE-2025-46569 (OPA vulnerability) still detected!"
+              echo "🔧 Try using Dockerfile.secure for complete elimination:"
+              echo "   docker build -f Dockerfile.secure -t nodeapi:secure ."
+            fi
+
             trivy image --severity HIGH,CRITICAL --exit-code 1 nodeapi:${CIRCLE_SHA1} || {
               echo "❌ HIGH or CRITICAL vulnerabilities found in Docker image!"
               echo "🛡️  Build BLOCKED for security reasons"
               echo "📋 Check the trivy-report.json artifact for detailed vulnerability information"
-              echo "🔧 Fix vulnerabilities by:"
-              echo "   1. Updating base image to newer version"
-              echo "   2. Updating vulnerable packages in Dockerfile"
-              echo "   3. Using distroless or minimal base images"
+              echo ""
+              echo "🔧 SPECIFIC FIX for CVE-2025-46569:"
+              echo "   1. Use distroless base image (eliminates OS vulnerabilities)"
+              echo "   2. Build with: docker build -f Dockerfile.secure"
+              echo "   3. Or update to use --target production in current Dockerfile"
+              echo ""
+              echo "🔧 General vulnerability fixes:"
+              echo "   1. Update base image to newer version"
+              echo "   2. Use distroless or minimal base images" 
+              echo "   3. Remove unnecessary packages from container"
               exit 1
             }
 

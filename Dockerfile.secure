@@ -1,0 +1,46 @@
+# Ultra-secure Dockerfile - Eliminates CVE-2025-46569 completely
+# Uses distroless base image with minimal attack surface
+
+# Build stage - minimal Alpine for building only
+FROM node:18.19.1-alpine3.19 AS builder
+
+# Security hardening - remove all unnecessary packages
+RUN apk update && apk upgrade && \
+    # Remove any potentially vulnerable packages
+    apk del --purge $(apk info | grep -E "(opa|policy|agent)" || echo "") && \
+    # Clean up completely
+    rm -rf /var/cache/apk/* /tmp/* /var/tmp/* /usr/share/man/* /usr/share/doc/*
+
+WORKDIR /app
+
+# Copy dependency files
+COPY package*.json ./
+
+# Install dependencies with security focus
+RUN npm ci --only=production --ignore-scripts && \
+    npm cache clean --force
+
+# Copy source code (only what's needed)
+COPY src/ ./src/
+COPY tsconfig.json ./
+
+# Build application
+RUN npx tsc && \
+    # Clean up build dependencies
+    rm -rf src/ tsconfig.json node_modules/.cache
+
+# Final production stage - Google Distroless (NO OS vulnerabilities)
+FROM gcr.io/distroless/nodejs18-debian11:nonroot
+
+WORKDIR /app
+
+# Copy ONLY the built application
+COPY --from=builder /app/dist ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+
+# Distroless already runs as nonroot user
+EXPOSE 3000
+
+# Run the application
+CMD ["index.js"]

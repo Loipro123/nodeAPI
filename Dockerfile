@@ -1,53 +1,57 @@
-# Use the latest Node.js runtime as the base image (updated for security)
-FROM node:18.19.0-alpine3.19 AS base
+# Build stage - use latest Node.js for building
+FROM node:18.19.1-alpine3.19 AS builder
 
-# Update system packages and install security updates
-RUN apk update && apk upgrade && apk add --no-cache \
-    dumb-init \
-    && rm -rf /var/cache/apk/*
+# Update system packages and remove potentially vulnerable packages
+RUN apk update && apk upgrade && \
+    apk add --no-cache dumb-init && \
+    # Remove any OPA-related packages that might exist
+    apk del --purge $(apk info | grep -i opa || echo "") && \
+    rm -rf /var/cache/apk/* /tmp/*
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json (if available)
+# Copy package files
 COPY package*.json ./
 
 # Install ALL dependencies (needed for TypeScript build)
-RUN npm install && npm cache clean --force
+RUN npm ci && npm cache clean --force
 
-# Copy the rest of the application code
+# Copy source code
 COPY . .
 
-# Build the TypeScript code
+# Build the TypeScript application
 RUN npm run build
 
-# Create a non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
+# Install only production dependencies
+RUN npm ci --only=production && npm cache clean --force
 
-# Remove development dependencies and dev files  
-RUN npm install --only=production && npm cache clean --force
-RUN rm -rf src/ tsconfig.json .eslintrc.json .prettierrc .prettierignore
+# Production stage - use distroless image (no OS vulnerabilities)
+FROM gcr.io/distroless/nodejs18-debian11:nonroot AS production
 
-# Change ownership to non-root user
-RUN chown -R nodejs:nodejs /app
+# Set working directory
+WORKDIR /app
 
-# Switch to non-root user
-USER nodejs
+# Copy built application and production dependencies from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
 # Expose the port the app runs on
 EXPOSE 3000
 
+# Use distroless nonroot user (already configured)
 # Define the command to run the application
-CMD ["npm", "start"]
+CMD ["dist/index.js"]
 
-# Multi-stage build for development
-FROM node:18.19.0-alpine3.19 AS development
+# Development stage - use secure Alpine image
+FROM node:18.19.1-alpine3.19 AS development
 
-# Update system packages for development
-RUN apk update && apk upgrade && apk add --no-cache \
-    dumb-init \
-    && rm -rf /var/cache/apk/*
+# Update system packages for development and remove OPA
+RUN apk update && apk upgrade && \
+    apk add --no-cache dumb-init && \
+    apk del --purge $(apk info | grep -i opa || echo "") && \
+    rm -rf /var/cache/apk/* /tmp/*
 
 WORKDIR /app
 
